@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 字型生成測試</title>
+    <style>
+      body {
+        font-family: "Microsoft JhengHei", sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background-color: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      .upload-area {
+        border: 2px dashed #ccc;
+        padding: 20px;
+        text-align: center;
+        margin-bottom: 20px;
+        border-radius: 4px;
+      }
+      .preview {
+        max-width: 300px;
+        margin: 10px auto;
+      }
+      .preview img {
+        max-width: 100%;
+        display: none;
+      }
+      button {
+        background-color: #4caf50;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        margin-top: 10px;
+      }
+      button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
+      .status {
+        margin-top: 20px;
+        padding: 10px;
+        display: none;
+      }
+      .error {
+        color: red;
+        display: none;
+      }
+      .config {
+        margin-bottom: 20px;
+        padding: 10px;
+        background-color: #f8f8f8;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>AI 字型生成測試</h1>
+
+      <div class="config">
+        <label>
+          API 網址：
+          <input
+            type="text"
+            id="apiUrl"
+            value="http://localhost:3001/ai-generate"
+            style="width: 300px"
+          />
+        </label>
+      </div>
+
+      <div class="upload-area">
+        <p>請選擇一個手寫字的圖片檔案（PNG格式）</p>
+        <input type="file" id="imageInput" accept=".png" />
+        <div class="preview">
+          <img id="previewImage" src="#" alt="預覽圖" />
+        </div>
+      </div>
+      <button id="generateBtn" disabled>生成字型</button>
+      <div id="status" class="status">處理中，請稍候...</div>
+      <div id="error" class="error"></div>
+    </div>
+
+    <script>
+      const imageInput = document.getElementById("imageInput");
+      const previewImage = document.getElementById("previewImage");
+      const generateBtn = document.getElementById("generateBtn");
+      const status = document.getElementById("status");
+      const error = document.getElementById("error");
+      const apiUrl = document.getElementById("apiUrl");
+
+      // 預覽圖片
+      imageInput.addEventListener("change", function (e) {
+        if (e.target.files && e.target.files[0]) {
+          const reader = new FileReader();
+
+          reader.onload = function (e) {
+            previewImage.src = e.target.result;
+            previewImage.style.display = "block";
+            generateBtn.disabled = false;
+          };
+
+          reader.readAsDataURL(e.target.files[0]);
+        }
+      });
+
+      // 生成字型
+      generateBtn.addEventListener("click", async function () {
+        const file = imageInput.files[0];
+        if (!file) {
+          showError("請選擇圖片檔案");
+          return;
+        }
+
+        try {
+          status.style.display = "block";
+          error.style.display = "none";
+          generateBtn.disabled = true;
+          status.textContent = "處理中，請稍候...（這可能需要幾分鐘）";
+
+          const formData = new FormData();
+          formData.append("reference_image", file);
+
+          const response = await fetch(apiUrl.value, {
+            method: "POST",
+            body: formData,
+          });
+
+          if (!response.ok) {
+            throw new Error((await response.text()) || "生成失敗");
+          }
+
+          // 下載字型檔
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "generated-font.ttf";
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          a.remove();
+
+          status.textContent = "生成完成！字型檔已開始下載。";
+        } catch (err) {
+          showError("生成失敗：" + err.message);
+        } finally {
+          generateBtn.disabled = false;
+        }
+      });
+
+      function showError(message) {
+        error.textContent = message;
+        error.style.display = "block";
+        status.style.display = "none";
+      }
+    </script>
+  </body>
+</html>

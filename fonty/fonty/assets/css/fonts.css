@@ -1,0 +1,49 @@
+/* Jason Handwriting 自訂字型定義 */
+
+@font-face {
+  font-family: 'Jason Handwriting 1';
+  src: url('/fonts/JasonHandwriting1.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Jason Handwriting 2';
+  src: url('/fonts/JasonHandwriting2.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Jason Handwriting 3';
+  src: url('/fonts/JasonHandwriting3.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Jason Handwriting 4';
+  src: url('/fonts/JasonHandwriting4.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Jason Handwriting 5';
+  src: url('/fonts/JasonHandwriting5.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Jason Handwriting 5p';
+  src: url('/fonts/JasonHandwriting5p.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}

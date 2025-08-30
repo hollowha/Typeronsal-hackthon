@@ -1,0 +1,12 @@
+fastapi>=0.99.0
+uvicorn>=0.34.0
+onnxruntime>=1.16.0
+onnxruntime-gpu>=1.16.0
+numpy>=1.21.0
+Pillow>=8.0.0
+opencv-python>=4.5.0
+torch>=1.13.0
+torchvision>=0.14.0
+transformers>=4.30.0
+accelerate>=0.20.0
+diffusers>=0.18.0

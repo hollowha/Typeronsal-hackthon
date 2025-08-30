@@ -1,0 +1,4 @@
+conda env list
+conda activate typersonal
+cd C:\Users\User\Desktop\大學資料\專題\code\Typersonal - 複製\Typersonal - 複製\backend\fastapi
+uvicorn main:app --host 0.0.0.0 --port 8000
