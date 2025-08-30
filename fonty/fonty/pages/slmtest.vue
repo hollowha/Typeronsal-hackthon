@@ -136,13 +136,14 @@ async function testSLMConnection() {
     formData.append('characters', characters.value || 'ABC')
     formData.append('message', '測試SLM功能')
     
-    const response = await fetch('http://localhost:8001/health', {
-      method: 'GET'
+    const response = await fetch('http://localhost:8001/test-simple', {
+      method: 'POST',
+      body: formData
     })
     
     if (response.ok) {
       const result = await response.json()
-      testResult.value = `✅ SLM測試成功！服務狀態: ${result.status}, 模型狀態: ${result.model_status}`
+      testResult.value = `✅ SLM測試成功！接收字元: ${result.received_characters}, 狀態: ${result.status}`
       slmStatus.value = 'active'
     } else {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`)

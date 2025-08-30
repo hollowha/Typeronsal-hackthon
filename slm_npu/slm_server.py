@@ -63,131 +63,351 @@ def _generate_slm_response(characters: str, context: str) -> str:
             from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
             import torch
             
-            # 檢查是否有可用的語言模型
-            model_name = "microsoft/DialoGPT-medium"  # 使用開源的對話模型
+            # 主要語言模型
+            primary_model_name = "microsoft/DialoGPT-medium"
+            # 備用 phi 模型
+            backup_model_name = "microsoft/phi-2"  # 或其他 phi 開頭的模型
             
-            print(f"[SLM] 🤖 嘗試載入語言模型: {model_name}")
+            print(f"[SLM] 🤖 嘗試載入主要語言模型: {primary_model_name}")
             
-            # 載入模型和tokenizer
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
-            model = AutoModelForCausalLM.from_pretrained(model_name)
+            # 嘗試載入主要模型
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(primary_model_name)
+                model = AutoModelForCausalLM.from_pretrained(primary_model_name)
+                current_model = primary_model_name
+                print(f"[SLM] ✅ 主要模型載入成功: {primary_model_name}")
+            except Exception as primary_error:
+                print(f"[SLM] ⚠️ 主要模型載入失敗: {primary_error}")
+                print(f"[SLM] 🔄 嘗試載入備用 phi 模型: {backup_model_name}")
+                
+                try:
+                    tokenizer = AutoTokenizer.from_pretrained(backup_model_name)
+                    model = AutoModelForCausalLM.from_pretrained(backup_model_name)
+                    current_model = backup_model_name
+                    print(f"[SLM] ✅ 備用 phi 模型載入成功: {backup_model_name}")
+                except Exception as backup_error:
+                    print(f"[SLM] ❌ 備用 phi 模型也載入失敗: {backup_error}")
+                    raise Exception(f"所有語言模型都載入失敗: {primary_error}, {backup_error}")
             
             # 設置pad_token - 修復警告
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
                 print(f"[SLM] 🔧 設置pad_token: {tokenizer.pad_token}")
             
-            # 構建簡單有效的提示詞
+            # 構建更豐富的提示詞
             if context and context.strip():
-                prompt = f"User: {characters} (context: {context})\nAssistant:"
+                prompt = f"""User: 請詳細分析並回答關於「{characters}」的問題。上下文：{context}
+
+請提供：
+1. 詳細的技術分析
+2. 實用的建議和解決方案
+3. 相關的技術背景知識
+4. 具體的實施步驟
+
+Assistant:"""
             else:
-                prompt = f"User: {characters}\nAssistant:"
+                prompt = f"""User: 請詳細分析並回答關於「{characters}」的問題。
+
+請提供：
+1. 詳細的技術分析
+2. 實用的建議和解決方案
+3. 相關的技術背景知識
+4. 具體的實施步驟
+
+Assistant:"""
             
             print(f"[SLM] 📝 使用提示詞: {prompt}")
             
             # 編碼輸入
-            inputs = tokenizer.encode(prompt, return_tensors="pt", truncation=True, max_length=50)
+            inputs = tokenizer.encode(prompt, return_tensors="pt", truncation=True, max_length=100)
             
-            # 生成回應 - 使用更保守的參數
-            with torch.no_grad():
-                outputs = model.generate(
-                    inputs, 
-                    max_new_tokens=80,
-                    num_return_sequences=1,
-                    temperature=0.9,
-                    do_sample=True,
-                    pad_token_id=tokenizer.pad_token_id,
-                    eos_token_id=tokenizer.eos_token_id,
-                    repetition_penalty=1.2,
-                    no_repeat_ngram_size=2
-                )
+            # 多重生成策略 - 大幅降低空回應機率
+            generated_responses = []
             
-            # 解碼回應
-            response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+            # 策略1: 標準生成
+            try:
+                with torch.no_grad():
+                    outputs = model.generate(
+                        inputs, 
+                        max_new_tokens=200,  # 從80增加到200
+                        num_return_sequences=1,
+                        temperature=0.8,  # 稍微降低溫度以獲得更連貫的回應
+                        do_sample=True,
+                        pad_token_id=tokenizer.pad_token_id,
+                        eos_token_id=tokenizer.eos_token_id,
+                        repetition_penalty=1.1,  # 降低重複懲罰
+                        no_repeat_ngram_size=3,  # 增加n-gram大小
+                        top_k=50,  # 添加top_k參數
+                        top_p=0.9,  # 添加top_p參數
+                        # 移除 length_penalty 以避免警告，因為我們沒有使用 beam search
+                    )
+                
+                response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                generated_response = response[len(prompt):].strip()
+                
+                if generated_response and len(generated_response) > 10:
+                    generated_responses.append(("標準生成", generated_response))
+                    print(f"[SLM] ✅ 標準生成成功，回應長度: {len(generated_response)}")
+                
+            except Exception as e:
+                print(f"[SLM] ⚠️ 標準生成失敗: {e}")
             
-            # 提取生成的部分（去掉原始提示）
-            generated_response = response[len(prompt):].strip()
+            # 策略2: 高溫度生成（增加多樣性）
+            if not generated_responses:
+                try:
+                    with torch.no_grad():
+                        outputs = model.generate(
+                            inputs, 
+                            max_new_tokens=150,
+                            num_return_sequences=1,
+                            temperature=1.2,  # 高溫度增加多樣性
+                            do_sample=True,
+                            pad_token_id=tokenizer.pad_token_id,
+                            eos_token_id=tokenizer.eos_token_id,
+                            repetition_penalty=1.0,  # 降低重複懲罰
+                            no_repeat_ngram_size=2,
+                            top_k=100,
+                            top_p=0.95
+                        )
+                    
+                    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                    generated_response = response[len(prompt):].strip()
+                    
+                    if generated_response and len(generated_response) > 10:
+                        generated_responses.append(("高溫度生成", generated_response))
+                        print(f"[SLM] ✅ 高溫度生成成功，回應長度: {len(generated_response)}")
+                        
+                except Exception as e:
+                    print(f"[SLM] ⚠️ 高溫度生成失敗: {e}")
             
-            if generated_response:
-                print(f"[SLM] ✅ 語言模型生成成功")
-                return generated_response
+            # 策略3: 貪心搜索（確保有輸出）
+            if not generated_responses:
+                try:
+                    with torch.no_grad():
+                        outputs = model.generate(
+                            inputs, 
+                            max_new_tokens=100,
+                            num_return_sequences=1,
+                            do_sample=False,  # 貪心搜索
+                            pad_token_id=tokenizer.pad_token_id,
+                            eos_token_id=tokenizer.eos_token_id
+                        )
+                    
+                    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                    generated_response = response[len(prompt):].strip()
+                    
+                    if generated_response and len(generated_response) > 10:
+                        generated_responses.append(("貪心搜索", generated_response))
+                        print(f"[SLM] ✅ 貪心搜索成功，回應長度: {len(generated_response)}")
+                        
+                except Exception as e:
+                    print(f"[SLM] ⚠️ 貪心搜索失敗: {e}")
+            
+            # 策略4: 簡化提示詞重試
+            if not generated_responses:
+                try:
+                    simple_prompt = f"User: 請回答關於「{characters}」的問題。\nAssistant:"
+                    simple_inputs = tokenizer.encode(simple_prompt, return_tensors="pt", truncation=True, max_length=50)
+                    
+                    with torch.no_grad():
+                        outputs = model.generate(
+                            simple_inputs, 
+                            max_new_tokens=80,
+                            num_return_sequences=1,
+                            temperature=0.9,
+                            do_sample=True,
+                            pad_token_id=tokenizer.pad_token_id,
+                            eos_token_id=tokenizer.eos_token_id
+                        )
+                    
+                    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                    generated_response = response[len(simple_prompt):].strip()
+                    
+                    if generated_response and len(generated_response) > 10:
+                        generated_responses.append(("簡化提示詞", generated_response))
+                        print(f"[SLM] ✅ 簡化提示詞生成成功，回應長度: {len(generated_response)}")
+                        
+                except Exception as e:
+                    print(f"[SLM] ⚠️ 簡化提示詞生成失敗: {e}")
+            
+            # 選擇最佳回應
+            if generated_responses:
+                # 選擇最長的回應
+                best_response = max(generated_responses, key=lambda x: len(x[1]))
+                print(f"[SLM] 🎯 選擇最佳回應: {best_response[0]}, 長度: {len(best_response[1])}")
+                
+                # 檢查回應是否為空或過短
+                if not best_response[1] or len(best_response[1].strip()) < 10:
+                    print(f"[SLM] ⚠️ 主要模型回應為空，嘗試切換到 phi 模型")
+                    return _try_phi_model_fallback(characters, context)
+                
+                return best_response[1]
             else:
-                print(f"[SLM] ⚠️ 語言模型回應為空，使用備用方案")
-                raise Exception("模型回應為空")
+                print(f"[SLM] ⚠️ 所有語言模型策略都失敗，嘗試 phi 模型備用")
+                return _try_phi_model_fallback(characters, context)
                 
         except Exception as model_error:
             print(f"[SLM] ⚠️ 語言模型載入失敗: {model_error}")
-            print(f"[SLM] 🔄 切換到智能模板模式")
+            print(f"[SLM] 🔄 嘗試 phi 模型備用")
             
-            # 備用方案：使用更智能的模板生成
+            # 嘗試 phi 模型備用
+            phi_response = _try_phi_model_fallback(characters, context)
+            if phi_response:
+                return phi_response
+            
+            # 如果 phi 模型也失敗，使用智能模板
+            print(f"[SLM] 🔄 切換到智能模板模式")
             return _generate_smart_template_response(characters, context)
             
     except Exception as e:
         print(f"[SLM] ❌ 生成SLM回應時出錯: {e}")
         return f"SLM回應生成失敗: {str(e)}"
 
-def _generate_smart_template_response(characters: str, context: str) -> str:
-    """智能模板回應（當語言模型不可用時）"""
+def _try_phi_model_fallback(characters: str, context: str) -> str:
+    """嘗試使用 phi 模型作為備用"""
     try:
-        # 根據字元特徵生成更智能的回應
-        char_count = len(characters)
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+        import torch
         
-        # 分析字元類型
+        # 嘗試不同的 phi 模型
+        phi_models = [
+            "microsoft/Phi-3-mini",  # 主要的 phi 模型
+            "microsoft/phi-2",        # 備用 phi-2
+            "microsoft/phi-1_5"       # 備用 phi-1.5
+        ]
+        
+        for phi_model in phi_models:
+            try:
+                print(f"[SLM] 🔄 嘗試載入 phi 模型: {phi_model}")
+                
+                tokenizer = AutoTokenizer.from_pretrained(phi_model)
+                model = AutoModelForCausalLM.from_pretrained(phi_model)
+                
+                # 設置 pad_token
+                if tokenizer.pad_token is None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                
+                # 構建適合 phi 模型的提示詞
+                if context and context.strip():
+                    prompt = f"User: 請分析「{characters}」並提供建議。上下文：{context}\n\nAssistant:"
+                else:
+                    prompt = f"User: 請分析「{characters}」並提供建議。\n\nAssistant:"
+                
+                print(f"[SLM] 📝 Phi 模型提示詞: {prompt}")
+                
+                # 編碼輸入
+                inputs = tokenizer.encode(prompt, return_tensors="pt", truncation=True, max_length=100)
+                
+                # 使用 phi 模型生成
+                with torch.no_grad():
+                    outputs = model.generate(
+                        inputs,
+                        max_new_tokens=150,
+                        temperature=0.7,
+                        do_sample=True,
+                        pad_token_id=tokenizer.pad_token_id,
+                        eos_token_id=tokenizer.eos_token_id,
+                        repetition_penalty=1.1,
+                        top_k=50,
+                        top_p=0.9
+                    )
+                
+                response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                generated_response = response[len(prompt):].strip()
+                
+                if generated_response and len(generated_response) > 10:
+                    print(f"[SLM] ✅ Phi 模型生成成功: {phi_model}, 回應長度: {len(generated_response)}")
+                    return generated_response
+                else:
+                    print(f"[SLM] ⚠️ Phi 模型回應為空: {phi_model}")
+                    
+            except Exception as phi_error:
+                print(f"[SLM] ⚠️ Phi 模型 {phi_model} 載入失敗: {phi_error}")
+                continue
+        
+        print(f"[SLM] ❌ 所有 phi 模型都失敗")
+        return None
+        
+    except Exception as e:
+        print(f"[SLM] ❌ Phi 模型備用失敗: {e}")
+        return None
+
+def _generate_smart_template_response(characters: str, context: str) -> str:
+    """萬用祝福文字回應（當語言模型不可用時）"""
+    try:
+        import random
+        import time
+        
+        # 獲取當前時間
+        current_time = time.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 萬用祝福語句集合
+        universal_blessings = [
+            "🌟 May your journey be filled with joy, success, and endless possibilities! 🌟",
+            "✨ Wishing you strength, wisdom, and happiness in all your endeavors! ✨",
+            "🎉 May every step you take lead you closer to your dreams and aspirations! 🎉",
+            "💫 Sending you positive energy and warm wishes for a wonderful day ahead! 💫",
+            "🌈 May your path be illuminated with hope, love, and beautiful moments! 🌈",
+            "🚀 Here's to new beginnings, exciting adventures, and amazing achievements! 🚀",
+            "🎊 May your heart be filled with peace, your mind with clarity, and your soul with joy! 🎊",
+            "⭐ Wishing you courage to face challenges and wisdom to overcome obstacles! ⭐",
+            "🌺 May your life be a beautiful garden of happiness, love, and success! 🌺",
+            "🎯 Sending you blessings for health, wealth, and all the good things in life! 🎯"
+        ]
+        
+        # 根據字元內容選擇合適的祝福語
+        char_count = len(characters)
         has_chinese = any('\u4e00' <= char <= '\u9fff' for char in characters)
         has_english = any(char.isascii() and char.isalpha() for char in characters)
         has_numbers = any(char.isdigit() for char in characters)
         
-        # 根據字元類型選擇回應策略
+        # 選擇祝福語
         if has_chinese:
-            if char_count <= 3:
-                analysis = f"這{char_count}個中文字元結構相對簡單，筆畫清晰，適合快速生成。"
-            elif char_count <= 8:
-                analysis = f"這{char_count}個中文字元包含多種筆畫結構，需要平衡生成質量和速度。"
-            else:
-                analysis = f"這{char_count}個中文字元數量較多，建議分批處理以獲得最佳效果。"
+            selected_blessing = random.choice([
+                "🌟 願你的字型創作之路充滿靈感與美好！🌟",
+                "✨ 願每個字元都承載著你的夢想與希望！✨",
+                "🎨 願你的藝術天賦綻放出最美麗的光芒！🎨"
+            ])
         elif has_english:
-            analysis = f"這{char_count}個英文字母結構規律，生成速度會較快。"
+            selected_blessing = random.choice([
+                "🌟 May your typography journey be filled with creativity and beauty! 🌟",
+                "✨ May each character carry your dreams and hopes! ✨",
+                "🎨 May your artistic talent shine with the most beautiful light! 🎨"
+            ])
         elif has_numbers:
-            analysis = f"這{char_count}個數字字元結構簡單，生成效率最高。"
+            selected_blessing = random.choice([
+                "🔢 May your numerical creations bring order and harmony! 🔢",
+                "📊 May your data-driven designs inspire and enlighten! 📊",
+                "⚡ May your digital innovations spark creativity! ⚡"
+            ])
         else:
-            analysis = f"這{char_count}個混合字元需要綜合考慮各種因素。"
+            selected_blessing = random.choice(universal_blessings)
         
-        # 根據上下文生成建議
-        if "分析" in context or "特徵" in context:
-            suggestion = "建議使用深度學習模型進行筆畫分析和風格匹配，確保生成的字型保持視覺一致性。"
-        elif "生成" in context:
-            suggestion = "字型生成將使用神經網絡進行風格遷移，每個字元都會經過優化處理。"
-        else:
-            suggestion = "字型生成過程會考慮字元間的視覺協調性，最終輸出將保持手寫風格的自然性。"
-        
-        # 技術細節
-        technical_details = [
-            "使用卷積神經網絡進行字元特徵提取",
-            "採用注意力機制確保筆畫的連續性",
-            "通過對抗訓練提升字型的真實感",
-            "使用風格遷移技術保持參考圖片的風格"
-        ]
-        
-        import random
-        selected_details = random.sample(technical_details, 2)
-        
-        # 構建完整回應
-        response = f"""字元 '{characters}' 的智能分析：
+        # 構建簡短的萬用祝福回應
+        response = f"""🎉 **Universal Blessing** 🎉
 
-{analysis}
+{selected_blessing}
 
-{suggestion}
+💫 May your day be filled with joy and creativity! 💫
 
-技術實現：
-{chr(10).join(f"• {detail}" for detail in selected_details)}
-
-生成建議：根據字元複雜度，預計生成時間約 {char_count * 2} 秒。"""
+---
+🌟 *Generated with love and care* 🌟"""
         
         return response
         
     except Exception as e:
-        print(f"[SLM] ❌ 智能模板生成失敗: {e}")
-        return f"智能分析失敗: {str(e)}"
+        print(f"[SLM] ❌ 萬用祝福生成失敗: {e}")
+        return f"""🎉 **Universal Blessing** 🎉
+
+🔤 Characters: {characters}
+📊 Count: {len(characters)}
+
+🌟 May your day be filled with joy and creativity! 🌟
+✨ Wishing you success in all your endeavors! ✨
+💫 Sending you positive energy and warm wishes! 💫
+
+---
+💝 *Even in technical difficulties, we send you our best wishes!* 💝"""
 
 @app.get("/")
 async def root():
